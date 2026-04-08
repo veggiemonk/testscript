@@ -1,0 +1,6 @@
+# Test exec with a simple command.
+exec echo hello from exec
+stdout 'hello from exec'
+
+# Test negated exec.
+! exec false

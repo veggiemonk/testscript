@@ -1,0 +1,11 @@
+# Test GOOS condition.
+[GOOS:linux] echo running on linux
+[GOOS:darwin] echo running on darwin
+
+# Test negated condition.
+[!GOOS:windows] echo not windows
+stdout 'not windows'
+
+# Test exec condition.
+[exec:echo] echo echo exists
+stdout 'echo exists'

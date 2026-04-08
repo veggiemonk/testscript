@@ -1,0 +1,7 @@
+# Test file comparison.
+echo hello
+cp stdout actual.txt
+cmp actual.txt expected.txt
+
+-- expected.txt --
+hello

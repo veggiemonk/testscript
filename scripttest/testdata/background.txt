@@ -1,0 +1,6 @@
+# Test background commands.
+exec echo bg1 &
+exec echo bg2 &
+wait
+stdout 'bg1'
+stdout 'bg2'

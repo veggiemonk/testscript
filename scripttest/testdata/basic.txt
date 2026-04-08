@@ -1,0 +1,4 @@
+# Test basic echo and stdout matching.
+echo hello world
+stdout 'hello world'
+! stderr .
