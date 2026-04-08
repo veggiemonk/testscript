@@ -99,8 +99,6 @@ Create `cmd/jsonfmt/script_test.go`:
 package main
 
 import (
-	"context"
-	"os"
 	"testing"
 
 	"github.com/veggiemonk/testscript/scripttest"
@@ -113,15 +111,40 @@ func TestMain(m *testing.M) {
 }
 
 func TestScripts(t *testing.T) {
-	engine := scripttest.DefaultEngine()
-	scripttest.Test(t, context.Background(), engine, os.Environ(), "testdata/*.txt")
+	scripttest.Test(t, "testdata/*.txt")
 }
 ```
 
 Two things to note:
 
 - `TestMain` registers the `jsonfmt` binary by mapping its name to the package's `main` function. When testscript runs, it compiles the test binary and places a symlink named `jsonfmt` on the PATH. Script commands like `exec jsonfmt` will invoke it.
-- `TestScripts` creates an engine with the default commands (`cmp`, `exec`, `echo`, etc.) and runs every `.txt` file in `testdata/`.
+- `TestScripts` runs every `.txt` file in `testdata/` using the default engine, environment, and context.
+
+### Test options
+
+`scripttest.Test` accepts functional options to override defaults:
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `WithEngine(e)` | `DefaultEngine()` | Use a custom script engine |
+| `WithEnv(env)` | `os.Environ()` | Set environment variables |
+| `WithContext(ctx)` | `t.Context()` | Set the base context |
+
+For example, to run scripts with a custom engine and a controlled environment:
+
+```go
+func TestScripts(t *testing.T) {
+    engine := scripttest.DefaultEngine()
+    engine.AddCmd("greet", myGreetCmd())
+
+    scripttest.Test(t, "testdata/*.txt",
+        scripttest.WithEngine(engine),
+        scripttest.WithEnv([]string{"HOME=/tmp"}),
+    )
+}
+```
+
+Without options, `Test` uses `DefaultEngine()`, `os.Environ()`, and `t.Context()`.
 
 ### The test script
 

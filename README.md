@@ -38,8 +38,6 @@ func main() {
 package main_test
 
 import (
-	"context"
-	"os"
 	"testing"
 
 	"github.com/veggiemonk/testscript/scripttest"
@@ -52,8 +50,7 @@ func TestMain(m *testing.M) {
 }
 
 func TestScripts(t *testing.T) {
-	engine := scripttest.DefaultEngine()
-	scripttest.Test(t, context.Background(), engine, os.Environ(), "testdata/*.txt")
+	scripttest.Test(t, "testdata/*.txt")
 }
 ```
 
@@ -87,26 +84,32 @@ The engine parses and executes the script line by line. Each line is a command w
 
 | Command  | Description |
 |----------|-------------|
-| `cat`    | Concatenate files and print to stdout buffer |
-| `cd`     | Change the working directory |
-| `cmp`    | Compare two files (or stdout/stderr with a file) for differences |
-| `cmpenv` | Compare files with environment variable expansion |
-| `cp`     | Copy files to a target file or directory |
-| `echo`   | Display a line of text |
-| `env`    | Set or print environment variables |
-| `exec`   | Run an executable program with arguments |
-| `exists` | Check that files exist (with optional `-readonly`, `-exec` flags) |
-| `grep`   | Find lines in a file matching a Go regexp |
-| `help`   | Log help text for commands and conditions |
-| `mkdir`  | Create directories (parents created automatically) |
-| `mv`     | Rename a file or directory |
-| `rm`     | Remove a file or directory recursively |
-| `stderr` | Match a Go regexp against the stderr buffer |
-| `stdout` | Match a Go regexp against the stdout buffer |
-| `stop`   | Stop script execution (success) |
-| `wait`   | Wait for background commands to complete |
-| `skip`   | Skip the current test (from scripttest) |
-| `update` | Update a golden file in the txtar archive with current stdout (from scripttest) |
+| `cat`     | Concatenate files and print to stdout buffer |
+| `cd`      | Change the working directory |
+| `chmod`   | Change file mode bits (numerical permissions only) |
+| `cmp`     | Compare two files (or stdout/stderr with a file) for differences |
+| `cmpenv`  | Compare files with environment variable expansion |
+| `cp`      | Copy files to a target file or directory |
+| `echo`    | Display a line of text |
+| `env`     | Set or print environment variables |
+| `exec`    | Run an executable program with arguments |
+| `exists`  | Check that files exist (with optional `-readonly`, `-exec` flags) |
+| `grep`    | Find lines in a file matching a Go regexp |
+| `help`    | Log help text for commands and conditions |
+| `mkdir`   | Create directories (parents created automatically) |
+| `mv`      | Rename a file or directory |
+| `replace` | Replace strings in a file (old/new pairs, Go string unquoting) |
+| `rm`      | Remove a file or directory recursively |
+| `sleep`   | Sleep for a specified duration (Go duration string) |
+| `stderr`  | Match a Go regexp against the stderr buffer |
+| `stdin`   | Set standard input for the next exec command |
+| `stdout`  | Match a Go regexp against the stdout buffer |
+| `stop`    | Stop script execution (success) |
+| `symlink` | Create a symbolic link (`path -> target`) |
+| `unquote` | Remove txtar `>` quoting from a file in place |
+| `wait`    | Wait for background commands to complete |
+| `skip`    | Skip the current test (from scripttest) |
+| `update`  | Update a golden file in the txtar archive with current stdout (from scripttest) |
 
 Use `-testscript.update` flag to automatically update golden files:
 

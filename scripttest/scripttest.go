@@ -246,7 +246,7 @@ func Test(t *testing.T, pattern string, opts ...Option) {
 
 			// Clone the engine to inject a per-test "update" command.
 			e := cfg.engine.Clone()
-			e.AddCmd("update", makeUpdateCmd(file, a))
+			e.AddCmd("update", makeUpdateCmd(a))
 
 			t.Log(time.Now().UTC().Format(time.RFC3339))
 			work, _ := s.LookupEnv("WORK")
@@ -370,7 +370,7 @@ func initScriptDirs(t testing.TB, s *script.State) {
 // makeUpdateCmd creates a per-test "update" command that captures stdout
 // into a named file within the txtar archive. This is used with the
 // -testscript.update flag to update golden files.
-func makeUpdateCmd(archivePath string, ar *txtar.Archive) script.Cmd {
+func makeUpdateCmd(ar *txtar.Archive) script.Cmd {
 	return script.Command(
 		script.CmdUsage{
 			Summary: "update a file in the test archive with the current stdout",

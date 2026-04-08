@@ -112,6 +112,18 @@ Halt script execution immediately. The test passes (no error is reported). The o
 exec git status
 ```
 
+#### sleep
+
+```
+sleep duration
+```
+
+Pause execution for the given duration (a Go `time.Duration` string like `1s`, `500ms`, `2m`). Can be run in the background.
+
+```
+sleep 100ms
+```
+
 #### skip
 
 ```
@@ -165,6 +177,19 @@ With no arguments, print the entire script environment to the log. With `key=val
 env HOME=/tmp/test
 env HOME
 stdout 'HOME=/tmp/test'
+```
+
+#### stdin
+
+```
+stdin file
+```
+
+Set standard input for the next `exec` command. The file contents become stdin, consumed after the next exec.
+
+```
+stdin input.json
+exec jsonfmt
 ```
 
 ### Assertions
@@ -315,6 +340,55 @@ rm tmp/
 rm old.log
 ```
 
+#### chmod
+
+```
+chmod perm paths...
+```
+
+Change the permissions of named files or directories. Only numerical permissions are supported.
+
+```
+chmod 0755 script.sh
+exec script.sh
+```
+
+#### symlink
+
+```
+symlink path -> target
+```
+
+Create a symbolic link. The `->` token is required between path and target.
+
+```
+symlink link.txt -> original.txt
+```
+
+#### replace
+
+```
+replace [old new]... file
+```
+
+Replace strings in a file. The `old` and `new` arguments are unquoted as if in quoted Go strings (so `\n` becomes a newline, etc.).
+
+```
+replace '\\n' '\n' output.txt
+```
+
+#### unquote
+
+```
+unquote file...
+```
+
+Remove txtar quoting from files in place. Each line's leading `>` prefix is stripped. This is useful when a file embedded in a txtar archive needs to contain lines starting with `--` that would otherwise be interpreted as archive markers.
+
+```
+unquote script.txt
+```
+
 ### Meta
 
 #### help
@@ -375,7 +449,7 @@ Multiple conditions on one line are AND-ed:
 
 ## Custom commands
 
-Register custom commands by adding to the engine's `Cmds` map:
+Register custom commands using the engine's `AddCmd` method:
 
 ```go
 import (
@@ -384,7 +458,7 @@ import (
 )
 
 engine := scripttest.DefaultEngine()
-engine.Cmds["greet"] = script.Command(
+engine.AddCmd("greet", script.Command(
     script.CmdUsage{
         Summary: "print a greeting",
         Args:    "name",
@@ -396,7 +470,7 @@ engine.Cmds["greet"] = script.Command(
         return func(*script.State) (string, string, error) {
             return "hello, " + args[0] + "\n", "", nil
         }, nil
-    })
+    }))
 ```
 
 Then use it in scripts:
@@ -415,10 +489,10 @@ Three constructors are available for registering conditions.
 A static true/false condition. Does not accept a suffix.
 
 ```go
-engine.Conds["ci"] = script.BoolCondition(
+engine.AddCond("ci", script.BoolCondition(
     "running in CI",
     os.Getenv("CI") == "true",
-)
+))
 ```
 
 ```
@@ -430,12 +504,12 @@ engine.Conds["ci"] = script.BoolCondition(
 Evaluated once per unique suffix, then cached. The function does not receive a `*State` because results are shared across all script states.
 
 ```go
-engine.Conds["exec"] = script.CachedCondition(
+engine.AddCond("exec", script.CachedCondition(
     "<suffix> names an executable in the test binary's PATH",
     func(name string) (bool, error) {
         _, err := exec.LookPath(name)
         return err == nil, nil
-    })
+    }))
 ```
 
 ```
@@ -447,12 +521,12 @@ engine.Conds["exec"] = script.CachedCondition(
 Evaluated each time it appears. Receives both the `*State` and the suffix, so it can vary based on script state.
 
 ```go
-engine.Conds["env"] = script.PrefixCondition(
+engine.AddCond("env", script.PrefixCondition(
     "environment variable <suffix> is set",
     func(s *script.State, suffix string) (bool, error) {
         _, ok := s.LookupEnv(suffix)
         return ok, nil
-    })
+    }))
 ```
 
 ```
