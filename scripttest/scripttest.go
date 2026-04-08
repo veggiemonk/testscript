@@ -72,13 +72,15 @@ func testingMRun(m TestingM, commands map[string]func()) int {
 	if err := os.MkdirAll(bindir, 0o777); err != nil {
 		log.Fatalf("could not set up PATH binary directory: %v", err)
 	}
-	os.Setenv("PATH", bindir+string(filepath.ListSeparator)+os.Getenv("PATH"))
+	if err := os.Setenv("PATH", bindir+string(filepath.ListSeparator)+os.Getenv("PATH")); err != nil {
+		log.Fatalf("could not set PATH: %v", err)
+	}
 
 	for name := range commands {
 		binfile := filepath.Join(bindir, name)
 		binpath, err := os.Executable()
 		if err == nil {
-			err = script.CopyBinary(binpath, binfile)
+			err = copyBinary(binpath, binfile)
 		}
 		if err != nil {
 			log.Fatalf("could not set up %s in $PATH: %v", name, err)
@@ -120,16 +122,76 @@ func DefaultConds() map[string]script.Cond {
 
 // DefaultEngine returns an [script.Engine] configured with [DefaultCmds] and [DefaultConds].
 func DefaultEngine() *script.Engine {
-	return &script.Engine{
-		Cmds:  DefaultCmds(),
-		Conds: DefaultConds(),
-	}
+	e := script.NewEngine()
+	// Add scripttest-specific commands and conditions on top of the base set.
+	e.AddCmd("skip", Skip())
+	e.AddCond("exec", CachedExec())
+	e.AddCond("short", script.BoolCondition("testing.Short()", testing.Short()))
+	e.AddCond("verbose", script.BoolCondition("testing.Verbose()", testing.Verbose()))
+	return e
+}
+
+// An Option configures how [Test] runs script tests.
+// The set of available options is closed: only options provided by this
+// package may be used.
+type Option interface {
+	apply(*config)
+}
+
+// option is the concrete adapter that implements [Option].
+type option func(*config)
+
+func (o option) apply(cfg *config) { o(cfg) }
+
+type config struct {
+	engine *script.Engine
+	env    []string
+	ctx    context.Context
+}
+
+// WithEngine sets the script engine used to run tests.
+// If not provided, [DefaultEngine] is used.
+// If called multiple times, the last call wins.
+func WithEngine(e *script.Engine) Option {
+	return option(func(c *config) { c.engine = e })
+}
+
+// WithEnv sets the environment variables for the script execution.
+// If not provided, [os.Environ] is used.
+// If called multiple times, the last call wins.
+func WithEnv(env []string) Option {
+	return option(func(c *config) { c.env = env })
+}
+
+// WithContext sets the base context for script execution.
+// If not provided, t.Context() is used.
+// If called multiple times, the last call wins.
+func WithContext(ctx context.Context) Option {
+	return option(func(c *config) { c.ctx = ctx })
 }
 
 // Test runs the test scripts matching the given pattern.
 // It creates parallel subtests for each matched file, unpacks any
 // txtar archive files, and runs the script engine on each.
-func Test(t *testing.T, ctx context.Context, engine *script.Engine, env []string, pattern string) {
+//
+// Options can be used to override the default engine, environment, and context.
+// Without options, Test uses [DefaultEngine], [os.Environ], and t.Context().
+func Test(t *testing.T, pattern string, opts ...Option) {
+	cfg := &config{}
+	for _, opt := range opts {
+		opt.apply(cfg)
+	}
+	if cfg.engine == nil {
+		cfg.engine = DefaultEngine()
+	}
+	if cfg.env == nil {
+		cfg.env = os.Environ()
+	}
+	if cfg.ctx == nil {
+		cfg.ctx = t.Context()
+	}
+
+	ctx := cfg.ctx
 	gracePeriod := 100 * time.Millisecond
 	if deadline, ok := t.Deadline(); ok {
 		timeout := time.Until(deadline)
@@ -154,18 +216,20 @@ func Test(t *testing.T, ctx context.Context, engine *script.Engine, env []string
 		t.Cleanup(cancel)
 	}
 
-	files, _ := filepath.Glob(pattern)
+	files, err := filepath.Glob(pattern)
+	if err != nil {
+		t.Fatalf("bad pattern %q: %v", pattern, err)
+	}
 	if len(files) == 0 {
 		t.Fatal("no testdata")
 	}
 	for _, file := range files {
-		file := file
 		name := strings.TrimSuffix(filepath.Base(file), ".txt")
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 
 			workdir := t.TempDir()
-			s, err := script.NewState(ctx, workdir, env)
+			s, err := script.NewState(ctx, workdir, cfg.env)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -181,8 +245,8 @@ func Test(t *testing.T, ctx context.Context, engine *script.Engine, env []string
 			}
 
 			// Clone the engine to inject a per-test "update" command.
-			e := cloneEngine(engine)
-			e.Cmds["update"] = makeUpdateCmd(file, a)
+			e := cfg.engine.Clone()
+			e.AddCmd("update", makeUpdateCmd(file, a))
 
 			t.Log(time.Now().UTC().Format(time.RFC3339))
 			work, _ := s.LookupEnv("WORK")
@@ -286,24 +350,6 @@ func CachedExec() script.Cond {
 			_, err := exec.LookPath(name)
 			return err == nil, nil
 		})
-}
-
-// cloneEngine returns a shallow copy of e with copied Cmds and Conds maps,
-// so that per-test commands can be registered without affecting the original.
-func cloneEngine(e *script.Engine) *script.Engine {
-	cmds := make(map[string]script.Cmd, len(e.Cmds))
-	for k, v := range e.Cmds {
-		cmds[k] = v
-	}
-	conds := make(map[string]script.Cond, len(e.Conds))
-	for k, v := range e.Conds {
-		conds[k] = v
-	}
-	return &script.Engine{
-		Cmds:  cmds,
-		Conds: conds,
-		Quiet: e.Quiet,
-	}
 }
 
 // initScriptDirs sets up $WORK and $TMPDIR for the script state.

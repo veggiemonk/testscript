@@ -21,19 +21,13 @@ func DefaultConds() map[string]Cond {
 	conds["GOOS"] = PrefixCondition(
 		"runtime.GOOS == <suffix>",
 		func(_ *State, suffix string) (bool, error) {
-			if suffix == runtime.GOOS {
-				return true, nil
-			}
-			return false, nil
+			return suffix == runtime.GOOS, nil
 		})
 
 	conds["GOARCH"] = PrefixCondition(
 		"runtime.GOARCH == <suffix>",
 		func(_ *State, suffix string) (bool, error) {
-			if suffix == runtime.GOARCH {
-				return true, nil
-			}
-			return false, nil
+			return suffix == runtime.GOARCH, nil
 		})
 
 	conds["root"] = BoolCondition("os.Geteuid() == 0", os.Geteuid() == 0)
@@ -57,24 +51,58 @@ func (c *prefixCond) Eval(s *State, suffix string) (bool, error) {
 	return c.evalFn(s, suffix)
 }
 
-// BoolCondition returns a Cond with the given truth value and summary.
+// Condition returns a Cond with the given summary and evaluation function.
 // The Cond rejects the use of condition suffixes.
-func BoolCondition(summary string, v bool) Cond {
-	return &boolCond{v: v, usage: CondUsage{Summary: summary}}
+// For conditions that accept a suffix, use PrefixCondition.
+func Condition(summary string, evalFn func(*State) (bool, error)) Cond {
+	return &simpleCond{evalFn: evalFn, usage: CondUsage{Summary: summary}}
 }
 
-type boolCond struct {
-	v     bool
-	usage CondUsage
+type simpleCond struct {
+	evalFn func(*State) (bool, error)
+	usage  CondUsage
 }
 
-func (b *boolCond) Usage() *CondUsage { return &b.usage }
+func (c *simpleCond) Usage() *CondUsage { return &c.usage }
 
-func (b *boolCond) Eval(s *State, suffix string) (bool, error) {
+func (c *simpleCond) Eval(s *State, suffix string) (bool, error) {
 	if suffix != "" {
 		return false, ErrUsage
 	}
-	return b.v, nil
+	return c.evalFn(s)
+}
+
+// BoolCondition returns a Cond with the given truth value and summary.
+// The Cond rejects the use of condition suffixes.
+func BoolCondition(summary string, v bool) Cond {
+	return Condition(summary, func(_ *State) (bool, error) { return v, nil })
+}
+
+// OnceCondition returns a Cond that calls fn the first time the condition
+// is evaluated. Future calls reuse the same result. The Cond rejects suffixes.
+//
+// The fn function is not passed a *State because the condition is cached
+// across all execution states and must not vary by state.
+func OnceCondition(summary string, fn func() (bool, error)) Cond {
+	return &onceCond{fn: fn, usage: CondUsage{Summary: summary}}
+}
+
+type onceCond struct {
+	once  sync.Once
+	v     bool
+	err   error
+	fn    func() (bool, error)
+	usage CondUsage
+}
+
+func (c *onceCond) Usage() *CondUsage { return &c.usage }
+
+func (c *onceCond) Eval(_ *State, suffix string) (bool, error) {
+	if suffix != "" {
+		return false, ErrUsage
+	}
+	c.once.Do(func() { c.v, c.err = c.fn() })
+	return c.v, c.err
 }
 
 // CachedCondition is like Condition but only calls evalFn the first time the

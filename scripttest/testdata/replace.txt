@@ -1,0 +1,14 @@
+# Test replace command.
+replace hello goodbye file.txt
+cat file.txt
+stdout 'goodbye world'
+
+# Test replace with multiple pairs.
+replace foo FOO bar BAR multi.txt
+cat multi.txt
+stdout 'FOO BAR baz'
+
+-- file.txt --
+hello world
+-- multi.txt --
+foo bar baz

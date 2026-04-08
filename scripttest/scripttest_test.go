@@ -6,14 +6,11 @@
 package scripttest_test
 
 import (
-	"context"
-	"os"
 	"testing"
 
 	"github.com/veggiemonk/testscript/scripttest"
 )
 
 func TestScripts(t *testing.T) {
-	engine := scripttest.DefaultEngine()
-	scripttest.Test(t, context.Background(), engine, os.Environ(), "testdata/*.txt")
+	scripttest.Test(t, "testdata/*.txt")
 }

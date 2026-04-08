@@ -1,0 +1,7 @@
+# Test stdin command provides input to exec.
+stdin input.txt
+exec cat
+stdout 'hello from stdin'
+
+-- input.txt --
+hello from stdin

@@ -1,0 +1,12 @@
+# Test chmod command.
+chmod 0644 file.txt
+exists file.txt
+
+# Test chmod with multiple files.
+chmod 0600 file.txt other.txt
+exists file.txt other.txt
+
+-- file.txt --
+hello
+-- other.txt --
+world

@@ -50,7 +50,6 @@
 // are satisfied.
 //
 // Package script is particularly good for writing tests.
-// Ironically, it has no tests.
 package script
 
 import (
@@ -59,7 +58,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"sort"
+	"maps"
+	"slices"
 	"strings"
 	"time"
 )
@@ -68,19 +68,58 @@ import (
 //
 // The same Engine may execute multiple scripts concurrently.
 type Engine struct {
-	Cmds  map[string]Cmd
-	Conds map[string]Cond
+	cmds  map[string]Cmd
+	conds map[string]Cond
 
-	// If Quiet is true, Execute deletes log prints from the previous
+	// If quiet is true, Execute deletes log prints from the previous
 	// section when starting a new section.
-	Quiet bool
+	quiet bool
+
+	// If continueOnError is true, Execute tries to continue running
+	// commands after a failure instead of stopping immediately.
+	// Once an error has occurred, subsequent sections are logged verbosely.
+	continueOnError bool
 }
 
 // NewEngine returns an Engine configured with a basic set of commands and conditions.
 func NewEngine() *Engine {
 	return &Engine{
-		Cmds:  DefaultCmds(),
-		Conds: DefaultConds(),
+		cmds:  DefaultCmds(),
+		conds: DefaultConds(),
+	}
+}
+
+// AddCmd registers (or replaces) the named command in the engine.
+func (e *Engine) AddCmd(name string, cmd Cmd) { e.cmds[name] = cmd }
+
+// AddCond registers (or replaces) the named condition in the engine.
+func (e *Engine) AddCond(name string, cond Cond) { e.conds[name] = cond }
+
+// SetQuiet configures whether the engine suppresses log output from previous
+// sections when starting a new section.
+func (e *Engine) SetQuiet(q bool) { e.quiet = q }
+
+// IsQuiet reports whether the engine is in quiet mode.
+func (e *Engine) IsQuiet() bool { return e.quiet }
+
+// SetContinueOnError configures whether the engine continues executing
+// commands after a failure. When enabled, all errors are collected and
+// returned together at the end. Subsequent sections after a failure are
+// logged verbosely.
+func (e *Engine) SetContinueOnError(v bool) { e.continueOnError = v }
+
+// ContinueOnError reports whether the engine continues on error.
+func (e *Engine) ContinueOnError() bool { return e.continueOnError }
+
+// Clone returns a copy of the engine with independently mutable command and
+// condition maps. This is useful for registering per-test commands without
+// affecting the original engine.
+func (e *Engine) Clone() *Engine {
+	return &Engine{
+		cmds:            maps.Clone(e.cmds),
+		conds:           maps.Clone(e.conds),
+		quiet:           e.quiet,
+		continueOnError: e.continueOnError,
 	}
 }
 
@@ -103,7 +142,13 @@ type Cmd interface {
 	Usage() *CmdUsage
 }
 
-// A WaitFunc is a function called to retrieve the results of a Cmd.
+// A WaitFunc is a function called to retrieve the results of a [Cmd] after it
+// has been started by [Cmd.Run]. It blocks until the command completes and
+// returns the standard output, standard error, and any execution error.
+//
+// If a Cmd starts a long-running process (for example, a background command),
+// the WaitFunc allows the caller to defer collection of its results.
+// A nil WaitFunc indicates that the command has already completed.
 type WaitFunc func(*State) (stdout, stderr string, err error)
 
 // A CmdUsage describes the usage of a Cmd, independent of its name
@@ -166,6 +211,9 @@ func (e *Engine) Execute(s *State, file string, script *bufio.Reader, log io.Wri
 	defer func(prev *Engine) { s.engine = prev }(s.engine)
 	s.engine = e
 
+	var failed bool     // tracks whether any command has failed (for continueOnError)
+	var allErrs []error // collected errors when continueOnError is true
+
 	var sectionStart time.Time
 	// endSection flushes the logs for the current section from s.log to log.
 	// ok indicates whether all commands in the section succeeded.
@@ -184,7 +232,7 @@ func (e *Engine) Execute(s *State, file string, script *bufio.Reader, log io.Wri
 			// Insert elapsed time for section at the end of the section's comment.
 			_, err = fmt.Fprintf(log, " (%.3fs)\n", time.Since(sectionStart).Seconds())
 
-			if err == nil && (!ok || !e.Quiet) {
+			if err == nil && (!ok || !e.quiet || failed) {
 				err = s.flushLog(log)
 			} else {
 				s.log.Reset()
@@ -271,7 +319,7 @@ func (e *Engine) Execute(s *State, file string, script *bufio.Reader, log io.Wri
 			continue
 		}
 
-		impl := e.Cmds[cmd.name]
+		impl := e.cmds[cmd.name]
 
 		// Expand variables in arguments.
 		var regexpArgs []int
@@ -301,17 +349,23 @@ func (e *Engine) Execute(s *State, file string, script *bufio.Reader, log io.Wri
 				err = endSection(true)
 				s.Logf("%v\n", stop)
 				if err == nil {
-					return nil
+					return errors.Join(allErrs...)
 				}
 			}
-			return lineErr(err)
+
+			if e.continueOnError {
+				failed = true
+				allErrs = append(allErrs, lineErr(err))
+			} else {
+				return lineErr(err)
+			}
 		}
 	}
 
-	if err := endSection(true); err != nil {
-		return lineErr(err)
+	if err := endSection(!failed); err != nil {
+		allErrs = append(allErrs, lineErr(err))
 	}
-	return nil
+	return errors.Join(allErrs...)
 }
 
 // A command is a complete command parsed from a script.
@@ -478,7 +532,7 @@ func parse(filename string, lineno int, line string) (cmd *command, err error) {
 				name := s[1 : len(s)-1]
 				valid := true
 				for _, r := range name {
-					if !((r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '_') {
+					if (r < 'a' || r > 'z') && (r < 'A' || r > 'Z') && (r < '0' || r > '9') && r != '_' {
 						valid = false
 						break
 					}
@@ -499,13 +553,7 @@ func parse(filename string, lineno int, line string) (cmd *command, err error) {
 func expandArgs(s *State, rawArgs [][]argFragment, regexpArgs []int) []string {
 	args := make([]string, 0, len(rawArgs))
 	for i, frags := range rawArgs {
-		isRegexp := false
-		for _, j := range regexpArgs {
-			if i == j {
-				isRegexp = true
-				break
-			}
-		}
+		isRegexp := slices.Contains(regexpArgs, i)
 
 		var b strings.Builder
 		for _, frag := range frags {
@@ -546,7 +594,7 @@ func (e *Engine) conditionsActive(s *State, conds []condition) (bool, error) {
 		var impl Cond
 		prefix, suffix, ok := strings.Cut(cond.tag, ":")
 		if ok {
-			impl = e.Conds[prefix]
+			impl = e.conds[prefix]
 			if impl == nil {
 				return false, fmt.Errorf("unknown condition prefix %q", prefix)
 			}
@@ -554,7 +602,7 @@ func (e *Engine) conditionsActive(s *State, conds []condition) (bool, error) {
 				return false, fmt.Errorf("condition %q cannot be used with a suffix", prefix)
 			}
 		} else {
-			impl = e.Conds[cond.tag]
+			impl = e.conds[cond.tag]
 			if impl == nil {
 				return false, fmt.Errorf("unknown condition %q", cond.tag)
 			}
@@ -598,7 +646,6 @@ func (e *Engine) runCommand(s *State, cmd *command, impl Cmd) error {
 	if cmd.background {
 		s.background = append(s.background, backgroundCmd{
 			command: cmd,
-			name:    cmd.bgName,
 			wait:    wait,
 		})
 		// Clear stdout and stderr, since they no longer correspond to the last
@@ -608,23 +655,21 @@ func (e *Engine) runCommand(s *State, cmd *command, impl Cmd) error {
 		return nil
 	}
 
-	if wait != nil {
-		stdout, stderr, waitErr := wait(s)
-		s.stdout = stdout
-		s.stderr = stderr
-		if stdout != "" {
-			s.Logf("[stdout]\n%s", stdout)
-		}
-		if stderr != "" {
-			s.Logf("[stderr]\n%s", stderr)
-		}
-		if cmdErr := checkStatus(cmd, waitErr); cmdErr != nil {
-			return cmdErr
-		}
-		if waitErr != nil {
-			// waitErr was expected (by cmd.want), so log it instead of returning it.
-			s.Logf("[%v]\n", waitErr)
-		}
+	stdout, stderr, waitErr := wait(s)
+	s.stdout = stdout
+	s.stderr = stderr
+	if stdout != "" {
+		s.Logf("[stdout]\n%s", stdout)
+	}
+	if stderr != "" {
+		s.Logf("[stderr]\n%s", stderr)
+	}
+	if cmdErr := checkStatus(cmd, waitErr); cmdErr != nil {
+		return cmdErr
+	}
+	if waitErr != nil {
+		// waitErr was expected (by cmd.want), so log it instead of returning it.
+		s.Logf("[%v]\n", waitErr)
 	}
 	return nil
 }
@@ -676,15 +721,11 @@ func checkStatus(cmd *command, err error) error {
 // commands registered in e.
 func (e *Engine) ListCmds(w io.Writer, verbose bool, names ...string) error {
 	if names == nil {
-		names = make([]string, 0, len(e.Cmds))
-		for name := range e.Cmds {
-			names = append(names, name)
-		}
-		sort.Strings(names)
+		names = slices.Sorted(maps.Keys(e.cmds))
 	}
 
 	for _, name := range names {
-		cmd := e.Cmds[name]
+		cmd := e.cmds[name]
 		usage := cmd.Usage()
 
 		suffix := ""
@@ -753,16 +794,12 @@ func wrapLine(w io.Writer, line string, cols int, indent string) error {
 // the engine e.
 func (e *Engine) ListConds(w io.Writer, s *State, tags ...string) error {
 	if tags == nil {
-		tags = make([]string, 0, len(e.Conds))
-		for name := range e.Conds {
-			tags = append(tags, name)
-		}
-		sort.Strings(tags)
+		tags = slices.Sorted(maps.Keys(e.conds))
 	}
 
 	for _, tag := range tags {
 		if prefix, suffix, ok := strings.Cut(tag, ":"); ok {
-			cond := e.Conds[prefix]
+			cond := e.conds[prefix]
 			if cond == nil {
 				return fmt.Errorf("unknown condition prefix %q", prefix)
 			}
@@ -784,7 +821,7 @@ func (e *Engine) ListConds(w io.Writer, s *State, tags ...string) error {
 			continue
 		}
 
-		cond := e.Conds[tag]
+		cond := e.conds[tag]
 		if cond == nil {
 			return fmt.Errorf("unknown condition %q", tag)
 		}

@@ -3,13 +3,13 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
-//go:build linux
+//go:build darwin
 
-package script
+package scripttest
 
-import "os"
+import "golang.org/x/sys/unix"
 
-// cloneFile makes a clone of a file via a hard link.
+// cloneFile makes a clone of a file via macOS's clonefile syscall.
 func cloneFile(from, to string) error {
-	return os.Link(from, to)
+	return unix.Clonefile(from, to, 0)
 }

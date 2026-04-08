@@ -1,0 +1,9 @@
+# Test unquote command removes txtar quoting.
+unquote quoted.txt
+cat quoted.txt
+stdout 'line one'
+stdout 'line two'
+
+-- quoted.txt --
+>line one
+>line two

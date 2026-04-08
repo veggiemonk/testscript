@@ -1,0 +1,7 @@
+# Test symlink command.
+symlink link.txt -> target.txt
+cat link.txt
+stdout 'target content'
+
+-- target.txt --
+target content

@@ -93,29 +93,29 @@ func (w waitError) Error() string {
 	return b.String()
 }
 
-func (w waitError) Unwrap() error {
-	if len(w.errs) == 1 {
-		return w.errs[0]
+func (w waitError) Unwrap() []error {
+	errs := make([]error, len(w.errs))
+	for i, e := range w.errs {
+		errs[i] = e
 	}
-	return nil
+	return errs
 }
 
-// skipError is a sentinel error used by the skip command.
-type skipError struct {
+// A SkipError indicates that a script invoked the "skip" command.
+// It is used by the scripttest package to translate script skips into
+// testing.T.Skip calls.
+type SkipError struct {
 	msg string
 }
 
-func (s skipError) Error() string {
+func (s SkipError) Error() string {
 	if s.msg == "" {
 		return "skip"
 	}
 	return s.msg
 }
 
-// SkipError is an exported alias for skipError, for use by the scripttest package.
-type SkipError = skipError
-
-// MakeSkipError creates a new skipError with the given message.
+// MakeSkipError creates a new SkipError with the given message.
 func MakeSkipError(msg string) error {
-	return skipError{msg: msg}
+	return SkipError{msg: msg}
 }

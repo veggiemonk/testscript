@@ -6,7 +6,6 @@
 package script
 
 import (
-	"context"
 	"runtime"
 	"sync/atomic"
 	"testing"
@@ -15,7 +14,7 @@ import (
 func newTestState(t *testing.T) *State {
 	t.Helper()
 	dir := t.TempDir()
-	s, err := NewState(context.Background(), dir, []string{"PATH=/usr/bin", "HOME=/tmp"})
+	s, err := NewState(t.Context(), dir, []string{"PATH=/usr/bin", "HOME=/tmp"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -119,6 +118,67 @@ func TestPrefixCondition(t *testing.T) {
 	}
 	if ok && runtime.GOOS != "plan9" {
 		t.Error("expected false for plan9")
+	}
+}
+
+func TestCondition(t *testing.T) {
+	s := newTestState(t)
+
+	c := Condition("always true from state", func(_ *State) (bool, error) {
+		return true, nil
+	})
+
+	ok, err := c.Eval(s, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ok {
+		t.Error("expected true, got false")
+	}
+
+	// Suffix should be rejected.
+	_, err = c.Eval(s, "something")
+	if err == nil {
+		t.Error("expected error for suffix, got nil")
+	}
+}
+
+func TestOnceCondition(t *testing.T) {
+	var callCount atomic.Int32
+	c := OnceCondition("computed once", func() (bool, error) {
+		callCount.Add(1)
+		return true, nil
+	})
+	s := newTestState(t)
+
+	// First call should evaluate.
+	ok, err := c.Eval(s, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ok {
+		t.Error("expected true")
+	}
+	if n := callCount.Load(); n != 1 {
+		t.Errorf("expected 1 call, got %d", n)
+	}
+
+	// Second call should reuse cached result.
+	ok, err = c.Eval(s, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ok {
+		t.Error("expected true on second call")
+	}
+	if n := callCount.Load(); n != 1 {
+		t.Errorf("expected still 1 call, got %d", n)
+	}
+
+	// Suffix should be rejected.
+	_, err = c.Eval(s, "something")
+	if err == nil {
+		t.Error("expected error for suffix, got nil")
 	}
 }
 

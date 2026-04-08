@@ -6,6 +6,8 @@
 package script
 
 import (
+	"bufio"
+	"strings"
 	"testing"
 )
 
@@ -221,6 +223,45 @@ func TestParseMissingCommand(t *testing.T) {
 	_, err := parse("test.txt", 1, "!")
 	if err == nil {
 		t.Error("expected error for missing command after prefix")
+	}
+}
+
+func TestContinueOnError(t *testing.T) {
+	e := NewEngine()
+	e.SetContinueOnError(true)
+
+	s, err := NewState(t.Context(), t.TempDir(), []string{"PATH=/usr/bin"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Script where the first command fails but the second succeeds.
+	script := "! exec true\nexec true\n"
+	var log strings.Builder
+	err = e.Execute(s, "test.txt", bufio.NewReader(strings.NewReader(script)), &log)
+	if err == nil {
+		t.Fatal("expected error from ContinueOnError execution, got nil")
+	}
+	// The error should mention the failing command.
+	if !strings.Contains(err.Error(), "unexpected") {
+		t.Errorf("error = %q, expected it to mention 'unexpected'", err.Error())
+	}
+}
+
+func TestContinueOnErrorAllPass(t *testing.T) {
+	e := NewEngine()
+	e.SetContinueOnError(true)
+
+	s, err := NewState(t.Context(), t.TempDir(), []string{"PATH=/usr/bin"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	script := "exec true\nexec true\n"
+	var log strings.Builder
+	err = e.Execute(s, "test.txt", bufio.NewReader(strings.NewReader(script)), &log)
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
 	}
 }
 

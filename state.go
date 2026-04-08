@@ -27,13 +27,13 @@ type State struct {
 
 	ctx    context.Context
 	cancel context.CancelFunc
-	file   string
 	log    bytes.Buffer
 
 	workdir string            // initial working directory
 	pwd     string            // current working directory during execution
 	env     []string          // environment list (for os/exec)
 	envMap  map[string]string // environment mapping (matches env)
+	stdin   string            // standard input for next command; set by 'stdin' command, consumed by 'exec'
 	stdout  string            // standard output from last 'go' command; for 'stdout' command
 	stderr  string            // standard error from last 'go' command; for 'stderr' command
 
@@ -42,7 +42,6 @@ type State struct {
 
 type backgroundCmd struct {
 	*command
-	name string
 	wait WaitFunc
 }
 
@@ -87,7 +86,10 @@ func NewState(ctx context.Context, workdir string, initialEnv []string) (*State,
 		env:     env,
 		envMap:  envMap,
 	}
-	s.Setenv("PWD", absWork)
+	if err := s.Setenv("PWD", absWork); err != nil {
+		cancel()
+		return nil, err
+	}
 	return s, nil
 }
 
@@ -113,8 +115,7 @@ func (s *State) Chdir(path string) error {
 		return &fs.PathError{Op: "Chdir", Path: dir, Err: err}
 	}
 	s.pwd = dir
-	s.Setenv("PWD", dir)
-	return nil
+	return s.Setenv("PWD", dir)
 }
 
 // Context returns the Context with which the State was created.

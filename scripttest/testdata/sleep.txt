@@ -1,0 +1,6 @@
+# Test sleep command completes.
+sleep 10ms
+
+# Test sleep in background.
+sleep 10ms &
+wait

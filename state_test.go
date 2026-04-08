@@ -6,7 +6,6 @@
 package script
 
 import (
-	"context"
 	"os"
 	"path/filepath"
 	"testing"
@@ -14,7 +13,7 @@ import (
 
 func TestNewState(t *testing.T) {
 	dir := t.TempDir()
-	s, err := NewState(context.Background(), dir, []string{"FOO=bar", "BAZ=qux"})
+	s, err := NewState(t.Context(), dir, []string{"FOO=bar", "BAZ=qux"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -43,7 +42,7 @@ func TestNewState(t *testing.T) {
 
 func TestStateSetenv(t *testing.T) {
 	dir := t.TempDir()
-	s, err := NewState(context.Background(), dir, []string{})
+	s, err := NewState(t.Context(), dir, []string{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -72,7 +71,7 @@ func TestStateChdir(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	s, err := NewState(context.Background(), dir, []string{})
+	s, err := NewState(t.Context(), dir, []string{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -93,7 +92,7 @@ func TestStateChdir(t *testing.T) {
 
 func TestStateExpandEnv(t *testing.T) {
 	dir := t.TempDir()
-	s, err := NewState(context.Background(), dir, []string{"NAME=world"})
+	s, err := NewState(t.Context(), dir, []string{"NAME=world"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -116,7 +115,7 @@ func TestStateExpandEnv(t *testing.T) {
 
 func TestStatePath(t *testing.T) {
 	dir := t.TempDir()
-	s, err := NewState(context.Background(), dir, []string{})
+	s, err := NewState(t.Context(), dir, []string{})
 	if err != nil {
 		t.Fatal(err)
 	}

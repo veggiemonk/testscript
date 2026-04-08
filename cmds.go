@@ -6,6 +6,7 @@
 package script
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -27,24 +28,30 @@ import (
 // commands.
 func DefaultCmds() map[string]Cmd {
 	return map[string]Cmd{
-		"cat":    Cat(),
-		"cd":     Cd(),
-		"cmp":    Cmp(),
-		"cmpenv": Cmpenv(),
-		"cp":     Cp(),
-		"echo":   Echo(),
-		"env":    Env(),
-		"exec":   Exec(func(cmd *exec.Cmd) error { return cmd.Process.Signal(os.Interrupt) }, 100*time.Millisecond), // arbitrary grace period
-		"exists": Exists(),
-		"grep":   Grep(),
-		"help":   Help(),
-		"mkdir":  Mkdir(),
-		"mv":     Mv(),
-		"rm":     Rm(),
-		"stderr": Stderr(),
-		"stdout": Stdout(),
-		"stop":   Stop(),
-		"wait":   Wait(),
+		"cat":     Cat(),
+		"cd":      Cd(),
+		"chmod":   Chmod(),
+		"cmp":     Cmp(),
+		"cmpenv":  Cmpenv(),
+		"cp":      Cp(),
+		"echo":    Echo(),
+		"env":     Env(),
+		"exec":    Exec(func(cmd *exec.Cmd) error { return cmd.Process.Signal(os.Interrupt) }, 100*time.Millisecond), // arbitrary grace period
+		"exists":  Exists(),
+		"grep":    Grep(),
+		"help":    Help(),
+		"mkdir":   Mkdir(),
+		"mv":      Mv(),
+		"replace": Replace(),
+		"rm":      Rm(),
+		"sleep":   Sleep(),
+		"stderr":  Stderr(),
+		"stdin":   Stdin(),
+		"stdout":  Stdout(),
+		"stop":    Stop(),
+		"symlink": Symlink(),
+		"unquote": Unquote(),
+		"wait":    Wait(),
 	}
 }
 
@@ -96,28 +103,17 @@ func Cat() Cmd {
 				return nil, ErrUsage
 			}
 
-			paths := make([]string, 0, len(args))
+			var buf strings.Builder
 			for _, arg := range args {
-				paths = append(paths, s.Path(arg))
+				b, err := os.ReadFile(s.Path(arg))
+				buf.Write(b)
+				if err != nil {
+					return nil, err
+				}
 			}
 
-			var buf strings.Builder
-			errc := make(chan error, 1)
-			go func() {
-				for _, p := range paths {
-					b, err := os.ReadFile(p)
-					buf.Write(b)
-					if err != nil {
-						errc <- err
-						return
-					}
-				}
-				errc <- nil
-			}()
-
 			wait := func(*State) (stdout, stderr string, err error) {
-				err = <-errc
-				return buf.String(), "", err
+				return buf.String(), "", nil
 			}
 			return wait, nil
 		})
@@ -135,6 +131,37 @@ func Cd() Cmd {
 				return nil, ErrUsage
 			}
 			return nil, s.Chdir(args[0])
+		})
+}
+
+// Chmod changes the permissions of the named files or directories.
+// Only numeric permissions are supported.
+func Chmod() Cmd {
+	return Command(
+		CmdUsage{
+			Summary: "change file mode bits",
+			Args:    "perm paths...",
+			Detail: []string{
+				"Changes the permissions of the named files or directories to be equal to perm.",
+				"Only numerical permissions are supported.",
+			},
+		},
+		func(s *State, args ...string) (WaitFunc, error) {
+			if len(args) < 2 {
+				return nil, ErrUsage
+			}
+
+			perm, err := strconv.ParseUint(args[0], 0, 32)
+			if err != nil || perm&uint64(fs.ModePerm) != perm {
+				return nil, fmt.Errorf("invalid mode: %s", args[0])
+			}
+
+			for _, arg := range args[1:] {
+				if err := os.Chmod(s.Path(arg), fs.FileMode(perm)); err != nil {
+					return nil, err
+				}
+			}
+			return nil, nil
 		})
 }
 
@@ -338,13 +365,13 @@ func Env() Cmd {
 				}
 			} else {
 				for _, env := range args {
-					i := strings.Index(env, "=")
-					if i < 0 {
+					before, after, ok := strings.Cut(env, "=")
+					if !ok {
 						// Display value instead of setting it.
 						fmt.Fprintf(out, "%s=%s\n", env, s.envMap[env])
 						continue
 					}
-					if err := s.Setenv(env[:i], env[i+1:]); err != nil {
+					if err := s.Setenv(before, after); err != nil {
 						return nil, err
 					}
 				}
@@ -412,6 +439,7 @@ func startCommand(s *State, name, path string, args []string, cancel func(*exec.
 		cmd.Args[0] = name
 		cmd.Dir = s.Getwd()
 		cmd.Env = s.env
+		cmd.Stdin = strings.NewReader(s.stdin)
 		cmd.Stdout = &stdoutBuf
 		cmd.Stderr = &stderrBuf
 		err := cmd.Start()
@@ -430,6 +458,8 @@ func startCommand(s *State, name, path string, args []string, cancel func(*exec.
 		}
 	}
 
+	s.stdin = "" // consumed by this exec
+
 	wait := func(s *State) (stdout, stderr string, err error) {
 		err = cmd.Wait()
 		return stdoutBuf.String(), stderrBuf.String(), err
@@ -445,7 +475,7 @@ func lookPath(s *State, command string) (string, error) {
 	}
 
 	pathEnv, _ := s.LookupEnv("PATH")
-	for _, dir := range strings.Split(pathEnv, string(filepath.ListSeparator)) {
+	for dir := range strings.SplitSeq(pathEnv, string(filepath.ListSeparator)) {
 		if dir == "" {
 			continue
 		}
@@ -636,18 +666,22 @@ func Help() Cmd {
 
 			out := new(strings.Builder)
 
-			if len(conds) > 0 || (len(args) == 0 && len(s.engine.Conds) > 0) {
+			if len(conds) > 0 || (len(args) == 0 && len(s.engine.conds) > 0) {
 				if conds == nil {
 					out.WriteString("conditions:\n\n")
 				}
-				s.engine.ListConds(out, s, conds...)
+				if err := s.engine.ListConds(out, s, conds...); err != nil {
+					return nil, err
+				}
 			}
 
 			if len(cmds) > 0 || len(args) == 0 {
 				if len(args) == 0 {
 					out.WriteString("\ncommands:\n\n")
 				}
-				s.engine.ListCmds(out, verbose, cmds...)
+				if err := s.engine.ListCmds(out, verbose, cmds...); err != nil {
+					return nil, err
+				}
 			}
 
 			wait := func(*State) (stdout, stderr string, err error) {
@@ -767,15 +801,53 @@ func Rm() Cmd {
 func removeAll(dir string) error {
 	// module cache has 0444 directories;
 	// make them writable in order to remove content.
-	filepath.WalkDir(dir, func(path string, info fs.DirEntry, err error) error {
+	_ = filepath.WalkDir(dir, func(path string, info fs.DirEntry, err error) error {
 		// chmod not only directories, but also things that we couldn't even stat
 		// due to permission errors: they may also be unreadable directories.
 		if err != nil || info.IsDir() {
-			os.Chmod(path, 0o777)
+			_ = os.Chmod(path, 0o777)
 		}
 		return nil
 	})
 	return os.RemoveAll(dir)
+}
+
+// Replace replaces all occurrences of a string in a file.
+// The 'old' and 'new' arguments are unquoted as if in quoted Go strings.
+func Replace() Cmd {
+	return Command(
+		CmdUsage{
+			Summary: "replace strings in a file",
+			Args:    "[old new]... file",
+			Detail: []string{
+				"The 'old' and 'new' arguments are unquoted as if in quoted Go strings.",
+			},
+		},
+		func(s *State, args ...string) (WaitFunc, error) {
+			if len(args)%2 != 1 {
+				return nil, ErrUsage
+			}
+
+			oldNew := make([]string, 0, len(args)-1)
+			for _, arg := range args[:len(args)-1] {
+				s, err := strconv.Unquote(`"` + arg + `"`)
+				if err != nil {
+					return nil, err
+				}
+				oldNew = append(oldNew, s)
+			}
+
+			r := strings.NewReplacer(oldNew...)
+			file := s.Path(args[len(args)-1])
+
+			data, err := os.ReadFile(file)
+			if err != nil {
+				return nil, err
+			}
+			replaced := r.Replace(string(data))
+
+			return nil, os.WriteFile(file, []byte(replaced), 0o666)
+		})
 }
 
 // Stderr searches for a regular expression in the stderr buffer.
@@ -795,6 +867,31 @@ func Stderr() Cmd {
 		})
 }
 
+// Stdin sets the standard input for the next exec command from the contents
+// of a file. The stdin is consumed (reset to empty) after the next exec.
+func Stdin() Cmd {
+	return Command(
+		CmdUsage{
+			Summary: "set standard input for the next command",
+			Args:    "file",
+			Detail: []string{
+				"The file contents become the standard input for the next exec command.",
+				"The stdin is consumed after the next exec.",
+			},
+		},
+		func(s *State, args ...string) (WaitFunc, error) {
+			if len(args) != 1 {
+				return nil, ErrUsage
+			}
+			data, err := os.ReadFile(s.Path(args[0]))
+			if err != nil {
+				return nil, err
+			}
+			s.stdin = string(data)
+			return nil, nil
+		})
+}
+
 // Stdout searches for a regular expression in the stdout buffer.
 func Stdout() Cmd {
 	return Command(
@@ -809,6 +906,78 @@ func Stdout() Cmd {
 		},
 		func(s *State, args ...string) (WaitFunc, error) {
 			return nil, match(s, args, s.Stdout(), "stdout")
+		})
+}
+
+// Unquote removes txtar quoting from the named files.
+// Txtar quoting prefixes each line with '>'. This is needed for files
+// that contain lines starting with "-- " which would otherwise be
+// interpreted as txtar file separators.
+func Unquote() Cmd {
+	return Command(
+		CmdUsage{
+			Summary: "unquote a txtar-quoted file in place",
+			Args:    "file...",
+			Detail: []string{
+				"Each file's content is unquoted by removing the '>' prefix from each line.",
+				"The file must have been quoted by prefixing each line with '>'.",
+			},
+		},
+		func(s *State, args ...string) (WaitFunc, error) {
+			if len(args) == 0 {
+				return nil, ErrUsage
+			}
+			for _, arg := range args {
+				file := s.Path(arg)
+				data, err := os.ReadFile(file)
+				if err != nil {
+					return nil, err
+				}
+				unquoted, err := txtarUnquote(data)
+				if err != nil {
+					return nil, fmt.Errorf("%s: %w", arg, err)
+				}
+				if err := os.WriteFile(file, unquoted, 0o666); err != nil {
+					return nil, err
+				}
+			}
+			return nil, nil
+		})
+}
+
+// txtarUnquote removes the '>' prefix from each line of data.
+func txtarUnquote(data []byte) ([]byte, error) {
+	if len(data) == 0 {
+		return nil, nil
+	}
+	if data[0] != '>' || data[len(data)-1] != '\n' {
+		return nil, fmt.Errorf("data does not appear to be quoted")
+	}
+	data = bytes.ReplaceAll(data, []byte("\n>"), []byte("\n"))
+	data = bytes.TrimPrefix(data, []byte(">"))
+	return data, nil
+}
+
+// Symlink creates path as a symbolic link to target.
+// The '->' token is required between path and target.
+func Symlink() Cmd {
+	return Command(
+		CmdUsage{
+			Summary: "create a symlink",
+			Args:    "path -> target",
+			Detail: []string{
+				"Creates path as a symlink to target.",
+				"The '->' token (like in 'ls -l' output on Unix) is required.",
+			},
+		},
+		func(s *State, args ...string) (WaitFunc, error) {
+			if len(args) != 3 || args[1] != "->" {
+				return nil, ErrUsage
+			}
+
+			// Note that the link target args[2] is not interpreted with s.Path:
+			// it will be interpreted relative to the directory file is in.
+			return nil, os.Symlink(filepath.FromSlash(args[2]), s.Path(args[0]))
 		})
 }
 
@@ -833,6 +1002,43 @@ func Stop() Cmd {
 				return nil, stopError{msg: args[0]}
 			}
 			return nil, stopError{}
+		})
+}
+
+// Sleep sleeps for the given Go duration or until the script's context is
+// cancelled, whichever happens first.
+func Sleep() Cmd {
+	return Command(
+		CmdUsage{
+			Summary: "sleep for a specified duration",
+			Args:    "duration",
+			Detail: []string{
+				"The duration must be given as a Go time.Duration string.",
+			},
+			Async: true,
+		},
+		func(s *State, args ...string) (WaitFunc, error) {
+			if len(args) != 1 {
+				return nil, ErrUsage
+			}
+
+			d, err := time.ParseDuration(args[0])
+			if err != nil {
+				return nil, err
+			}
+
+			timer := time.NewTimer(d)
+			wait := func(s *State) (stdout, stderr string, err error) {
+				ctx := s.Context()
+				select {
+				case <-ctx.Done():
+					timer.Stop()
+					return "", "", ctx.Err()
+				case <-timer.C:
+					return "", "", nil
+				}
+			}
+			return wait, nil
 		})
 }
 
@@ -864,7 +1070,7 @@ func Wait() Cmd {
 			var errs []*CommandError
 			var remaining []backgroundCmd
 			for _, bg := range s.background {
-				if name != "" && bg.name != name {
+				if name != "" && bg.bgName != name {
 					remaining = append(remaining, bg)
 					continue
 				}
@@ -874,7 +1080,7 @@ func Wait() Cmd {
 				if len(bg.args) > 0 {
 					beforeArgs = " "
 				}
-				s.Logf("[background] %s%s%s\n", bg.command.name, beforeArgs, quoteArgs(bg.args))
+				s.Logf("[background] %s%s%s\n", bg.name, beforeArgs, quoteArgs(bg.args))
 
 				if stdout != "" {
 					s.Logf("[stdout]\n%s", stdout)
