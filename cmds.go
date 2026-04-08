@@ -13,7 +13,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
-	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -441,13 +440,6 @@ func startCommand(s *State, name, path string, args []string, cancel func(*exec.
 // lookPath is (roughly) like exec.LookPath, but it uses the script's current
 // PATH to find the executable.
 func lookPath(s *State, command string) (string, error) {
-	var strEqual func(string, string) bool
-	if runtime.GOOS == "darwin" {
-		strEqual = strings.EqualFold
-	} else {
-		strEqual = func(a, b string) bool { return a == b }
-	}
-
 	isExecutable := func(fi os.FileInfo) bool {
 		return fi.Mode().IsRegular() && fi.Mode().Perm()&0o111 != 0
 	}
@@ -466,10 +458,6 @@ func lookPath(s *State, command string) (string, error) {
 			return path, nil
 		}
 	}
-
-	// Suppress the "not used" error for strEqual — it's used on darwin
-	// for case-insensitive lookups of directory entries when needed.
-	_ = strEqual
 
 	return "", &exec.Error{Name: command, Err: exec.ErrNotFound}
 }
@@ -509,7 +497,7 @@ func Exists() Cmd {
 				if readonly && info.Mode()&0o222 != 0 {
 					return nil, fmt.Errorf("%s exists but is writable", file)
 				}
-				if execFlag && runtime.GOOS != "windows" && info.Mode()&0o111 == 0 {
+				if execFlag && info.Mode()&0o111 == 0 {
 					return nil, fmt.Errorf("%s exists but is not executable", file)
 				}
 			}
@@ -795,7 +783,7 @@ func Stderr() Cmd {
 	return Command(
 		CmdUsage{
 			Summary: "find lines in the stderr buffer that match a pattern",
-			Args:    matchUsage + " file",
+			Args:    matchUsage,
 			Detail: []string{
 				"The command succeeds if at least one match (or the exact count, if given) is found.",
 				"The -q flag suppresses printing of matches.",
@@ -812,7 +800,7 @@ func Stdout() Cmd {
 	return Command(
 		CmdUsage{
 			Summary: "find lines in the stdout buffer that match a pattern",
-			Args:    matchUsage + " file",
+			Args:    matchUsage,
 			Detail: []string{
 				"The command succeeds if at least one match (or the exact count, if given) is found.",
 				"The -q flag suppresses printing of matches.",
