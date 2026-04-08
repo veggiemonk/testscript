@@ -19,6 +19,26 @@ func clean(text []byte) []byte {
 	return text
 }
 
+// FuzzDiff verifies that Diff never panics on arbitrary input and that
+// identical inputs always produce nil output.
+func FuzzDiff(f *testing.F) {
+	f.Add([]byte("hello\n"), []byte("world\n"))
+	f.Add([]byte(""), []byte(""))
+	f.Add([]byte("same\n"), []byte("same\n"))
+	f.Add([]byte("line1\nline2\n"), []byte("line1\nline3\n"))
+	f.Add([]byte("a\nb\nc\n"), []byte("a\nc\n"))
+	f.Add([]byte("a\n"), []byte("a\nb\n"))
+
+	f.Fuzz(func(t *testing.T, old, new []byte) {
+		result := Diff("old", old, "new", new)
+
+		// Identical inputs must produce nil.
+		if string(old) == string(new) && result != nil {
+			t.Errorf("Diff of identical inputs produced non-nil output: %q", result)
+		}
+	})
+}
+
 func Test(t *testing.T) {
 	files, _ := filepath.Glob("testdata/*.txt")
 	if len(files) == 0 {

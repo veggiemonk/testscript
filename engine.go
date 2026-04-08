@@ -569,16 +569,16 @@ func expandArgs(s *State, rawArgs [][]argFragment, regexpArgs []int) []string {
 }
 
 // quoteArgs returns a string that parse would parse as args when passed to a command.
-//
-// TODO(bcmills): This function should have a fuzz test.
 func quoteArgs(args []string) string {
 	var b strings.Builder
 	for i, arg := range args {
 		if i > 0 {
 			b.WriteString(" ")
 		}
-		if strings.ContainsAny(arg, "'"+argSepChars) {
+		if arg == "" || strings.ContainsAny(arg, "'&"+argSepChars) {
 			// Quote the argument to a form that would be parsed as a single argument.
+			// Empty strings need quoting to survive as a distinct argument.
+			// Ampersands need quoting to avoid triggering background execution parsing.
 			b.WriteString("'")
 			b.WriteString(strings.ReplaceAll(arg, "'", "''"))
 			b.WriteString("'")
