@@ -265,6 +265,34 @@ func TestContinueOnErrorAllPass(t *testing.T) {
 	}
 }
 
+func TestQuietEnvDefault(t *testing.T) {
+	e := NewEngine()
+	if e.IsQuietEnv() {
+		t.Error("expected IsQuietEnv() to be false by default")
+	}
+}
+
+func TestSetQuietEnv(t *testing.T) {
+	e := NewEngine()
+	e.SetQuietEnv(true)
+	if !e.IsQuietEnv() {
+		t.Error("expected IsQuietEnv() to be true after SetQuietEnv(true)")
+	}
+	e.SetQuietEnv(false)
+	if e.IsQuietEnv() {
+		t.Error("expected IsQuietEnv() to be false after SetQuietEnv(false)")
+	}
+}
+
+func TestClonePreservesQuietEnv(t *testing.T) {
+	e := NewEngine()
+	e.SetQuietEnv(true)
+	clone := e.Clone()
+	if !clone.IsQuietEnv() {
+		t.Error("expected Clone to preserve IsQuietEnv() = true")
+	}
+}
+
 func TestQuoteArgs(t *testing.T) {
 	tests := []struct {
 		args []string

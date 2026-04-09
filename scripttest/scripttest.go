@@ -289,7 +289,7 @@ func Run(t testing.TB, e *script.Engine, s *script.State, filename string, testS
 			}
 		}()
 
-		if testing.Verbose() {
+		if testing.Verbose() && !e.IsQuietEnv() {
 			// Add the environment to the start of the script log.
 			wait, err := script.Env().Run(s)
 			if err != nil {

@@ -79,6 +79,10 @@ type Engine struct {
 	// commands after a failure instead of stopping immediately.
 	// Once an error has occurred, subsequent sections are logged verbosely.
 	continueOnError bool
+
+	// If quietEnv is true, the environment dump at the start of each test
+	// script (normally printed in verbose mode) is suppressed.
+	quietEnv bool
 }
 
 // NewEngine returns an Engine configured with a basic set of commands and conditions.
@@ -111,6 +115,13 @@ func (e *Engine) SetContinueOnError(v bool) { e.continueOnError = v }
 // ContinueOnError reports whether the engine continues on error.
 func (e *Engine) ContinueOnError() bool { return e.continueOnError }
 
+// SetQuietEnv configures whether the environment dump at the start of each
+// test script is suppressed, even in verbose mode.
+func (e *Engine) SetQuietEnv(q bool) { e.quietEnv = q }
+
+// IsQuietEnv reports whether the environment dump is suppressed.
+func (e *Engine) IsQuietEnv() bool { return e.quietEnv }
+
 // Clone returns a copy of the engine with independently mutable command and
 // condition maps. This is useful for registering per-test commands without
 // affecting the original engine.
@@ -120,6 +131,7 @@ func (e *Engine) Clone() *Engine {
 		conds:           maps.Clone(e.conds),
 		quiet:           e.quiet,
 		continueOnError: e.continueOnError,
+		quietEnv:        e.quietEnv,
 	}
 }
 
