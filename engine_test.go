@@ -180,12 +180,12 @@ func TestParseQuotedEscape(t *testing.T) {
 	// The raw fragments should be "Don" (quoted) + "'" (quoted) + "t" (quoted)
 	// When expanded, this becomes Don't
 	frags := cmd.rawArgs[0]
-	var result string
+	var result strings.Builder
 	for _, f := range frags {
-		result += f.s
+		result.WriteString(f.s)
 	}
-	if result != "Don't" {
-		t.Errorf("combined fragments = %q, want %q", result, "Don't")
+	if result.String() != "Don't" {
+		t.Errorf("combined fragments = %q, want %q", result.String(), "Don't")
 	}
 }
 
