@@ -143,6 +143,7 @@ Recommended reading:
 - [Test scripts in Go](https://bitfieldconsulting.com/posts/test-scripts) -- Bitfield Consulting
 - [testscript: hidden testing gem](https://encore.dev/blog/testscript-hidden-testing-gem) -- Encore
 - [go-internal/testscript discussion](https://github.com/rogpeppe/go-internal/issues/297)
+- [Tour of txtar](https://rednafi.com/go/txtar/) -- Rednafi
 
 ## License
 
