@@ -241,9 +241,7 @@ func tgs(x, y []string) []pair {
 	}
 	k := 0
 	for _, v := range L {
-		if k < v {
-			k = v
-		}
+		k = max(k, v)
 	}
 	seq := make([]pair, 2+k)
 	seq[1+k] = pair{len(x), len(y)} // sentinel at end

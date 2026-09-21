@@ -15,6 +15,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 
 	"golang.org/x/tools/txtar"
@@ -126,7 +127,7 @@ func (s *State) Context() context.Context {
 // Environ returns a copy of the current script environment,
 // in the form "key=value".
 func (s *State) Environ() []string {
-	return append([]string(nil), s.env...)
+	return slices.Clone(s.env)
 }
 
 // ExpandEnv replaces ${var} or $var in the string according to the values of
