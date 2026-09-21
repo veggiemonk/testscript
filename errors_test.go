@@ -19,8 +19,7 @@ func TestWaitErrorUnwrapSingle(t *testing.T) {
 		t.Error("errors.Is failed to find wrapped fs.ErrNotExist in single-error waitError")
 	}
 
-	var ce *CommandError
-	if !errors.As(w, &ce) {
+	if _, ok := errors.AsType[*CommandError](w); !ok {
 		t.Error("errors.As failed to find *CommandError in single-error waitError")
 	}
 }
@@ -38,8 +37,7 @@ func TestWaitErrorUnwrapMultiple(t *testing.T) {
 		t.Error("errors.Is failed to find fs.ErrPermission in multi-error waitError")
 	}
 
-	var ce *CommandError
-	if !errors.As(w, &ce) {
+	if _, ok := errors.AsType[*CommandError](w); !ok {
 		t.Error("errors.As failed to find *CommandError in multi-error waitError")
 	}
 }
